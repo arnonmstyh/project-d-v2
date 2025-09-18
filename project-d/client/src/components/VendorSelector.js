@@ -1,8 +1,8 @@
 import React, { useState, useEffect } from 'react';
-import { ArrowRight, CheckCircle, AlertCircle } from 'lucide-react';
+import { ArrowRight, CheckCircle } from 'lucide-react';
 import AITLogo from './AITLogo';
 
-const VendorSelector = ({ vendors, onVendorSelection, selectedSource, selectedTarget, onSourceChange, onTargetChange }) => {
+const VendorSelector = ({ vendors, selectedSource, selectedTarget, onSourceChange, onTargetChange }) => {
   const [conversionOptions, setConversionOptions] = useState([]);
   const [loading, setLoading] = useState(false);
 
@@ -14,13 +14,49 @@ const VendorSelector = ({ vendors, onVendorSelection, selectedSource, selectedTa
 
   const fetchConversionOptions = async (sourceVendor) => {
     try {
-      const response = await fetch(`/api/vendors/${sourceVendor}/options`);
-      const data = await response.json();
-      if (data.success) {
-        setConversionOptions(data.options);
+      setLoading(true);
+      
+      // Dynamic API URL based on current host
+      const apiBaseUrl = window.location.hostname === 'localhost' || window.location.hostname === '127.0.0.1' 
+        ? 'http://localhost:5000' 
+        : `http://${window.location.hostname}:5000`;
+      
+      console.log(`Fetching conversion options for: ${sourceVendor} from ${apiBaseUrl}`);
+      
+      const response = await fetch(`${apiBaseUrl}/api/vendors/${sourceVendor}/options`, {
+        method: 'GET',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        mode: 'cors',
+      });
+      
+      if (response.ok) {
+        const data = await response.json();
+        if (data.success) {
+          setConversionOptions(data.options);
+          console.log('Conversion options loaded:', data.options);
+          return;
+        }
       }
+      
+      throw new Error(`HTTP ${response.status}: ${response.statusText}`);
     } catch (error) {
       console.error('Error fetching conversion options:', error);
+      // Fallback: generate options from available vendors
+      console.warn('Using fallback conversion options');
+      const allVendors = [
+        { id: 'cisco-asa', name: 'Cisco ASA', supported: true, complexity: 'medium' },
+        { id: 'cisco-ftd', name: 'Cisco FTD', supported: true, complexity: 'medium' },
+        { id: 'fortigate', name: 'FortiGate', supported: true, complexity: 'high' },
+        { id: 'palo-alto', name: 'Palo Alto', supported: true, complexity: 'high' }
+      ];
+      
+      // Filter out the source vendor
+      const options = allVendors.filter(vendor => vendor.id !== sourceVendor);
+      setConversionOptions(options);
+    } finally {
+      setLoading(false);
     }
   };
 

@@ -12,18 +12,23 @@ const app = express();
 const server = http.createServer(app);
 const publicOrigins = process.env.ALLOWED_ORIGINS
   ? process.env.ALLOWED_ORIGINS.split(',').map(o => o.trim())
-  : ["*"];
+  : ["http://localhost:3000", "http://127.0.0.1:3000", "http://10.2.25.230:3000"];
 
 const io = new Server(server, {
   cors: {
     origin: publicOrigins,
     methods: ["GET", "POST"],
-    credentials: false
+    credentials: true
   }
 });
 
 // Middleware
-app.use(cors({ origin: publicOrigins, credentials: false }));
+app.use(cors({ 
+  origin: publicOrigins, 
+  credentials: true,
+  methods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS'],
+  allowedHeaders: ['Content-Type', 'Authorization', 'X-Requested-With']
+}));
 app.use(express.json());
 app.use(express.static('public'));
 
@@ -49,7 +54,13 @@ const storage = multer.diskStorage({
 const upload = multer({ 
   storage: storage,
   fileFilter: (req, file, cb) => {
-    if (file.mimetype === 'text/plain' || file.originalname.endsWith('.txt') || file.originalname.endsWith('.cfg') || file.originalname.endsWith('.xml')) {
+    const allowedExtensions = ['.txt', '.cfg', '.xml'];
+    const fileExtension = file.originalname.toLowerCase().substring(file.originalname.lastIndexOf('.'));
+    
+    if (allowedExtensions.includes(fileExtension) || 
+        file.mimetype === 'text/plain' || 
+        file.mimetype === 'application/xml' || 
+        file.mimetype === 'text/xml') {
       cb(null, true);
     } else {
       cb(new Error('Only .txt, .cfg, and .xml files are allowed'), false);

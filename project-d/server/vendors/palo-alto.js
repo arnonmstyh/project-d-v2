@@ -275,8 +275,8 @@ class PaloAltoConfigGenerator {
       config += '    <address>\n';
       this.parsedConfig.addresses.forEach(addr => {
         const desc = addr.description ? `<description>${escapeXml(addr.description)}</description>` : '';
-        config += `      <entry name="${escapeXml(attrOr(addr.name,'addr'))}">\n`;
-        config += `        <ip-netmask>${escapeXml(attrOr(addr.value,'0.0.0.0/32'))}</ip-netmask>\n`;
+        config += `      <entry name="${escapeXml(addr.name || 'addr')}">\n`;
+        config += `        <ip-netmask>${escapeXml(addr.value || '0.0.0.0/32')}</ip-netmask>\n`;
         if (desc) config += `        ${desc}\n`;
         config += '      </entry>\n';
       });
@@ -287,7 +287,7 @@ class PaloAltoConfigGenerator {
       config += '    <address-group>\n';
       this.parsedConfig.addressGroups.forEach(grp => {
         const desc = grp.description ? `<description>${escapeXml(grp.description)}</description>` : '';
-        config += `      <entry name="${escapeXml(attrOr(grp.name,'addrgrp'))}">\n`;
+        config += `      <entry name="${escapeXml(grp.name || 'addrgrp')}">\n`;
         if (Array.isArray(grp.members) && grp.members.length > 0) {
           config += '        <static>\n';
           grp.members.forEach(m => {
@@ -328,7 +328,7 @@ class PaloAltoConfigGenerator {
       config += '            <security>\n';
       config += '              <rules>\n';
       derivedRules.forEach(rule => {
-        const name = escapeXml(attrOr(rule.name,'rule-1'));
+        const name = escapeXml(rule.name || 'rule-1');
         config += `                <entry name="${name}">\n`;
         // Sources
         config += '                  <from>\n';
@@ -366,26 +366,138 @@ class PaloAltoConfigGenerator {
     config += '      <network>\n';
     config += '        <interface>\n';
     config += '          <ethernet>\n';
-    this.parsedConfig.interfaces.forEach(iface => {
-      const name = escapeXml(attrOr(iface.name,'ethernet1/1'));
-      config += `            <entry name="${name}">\n`;
-      if (iface.ip) {
+    
+    // Generate interfaces with proper configuration
+    console.log(`[Palo Alto Generator] Processing ${this.parsedConfig.interfaces ? this.parsedConfig.interfaces.length : 0} interfaces`);
+    if (Array.isArray(this.parsedConfig.interfaces) && this.parsedConfig.interfaces.length > 0) {
+      this.parsedConfig.interfaces.forEach((iface, index) => {
+        console.log(`[Palo Alto Generator] Interface ${index + 1}: ${iface.name} - ${iface.ip}/${iface.mask} (${iface.zone})`);
+        const name = escapeXml(iface.name || `ethernet1/${index + 1}`);
+        const zone = iface.zone || (iface.name && iface.name.includes('wan') ? 'untrust' : 'trust');
+        
+        config += `            <entry name="${name}">\n`;
+        
+        // Layer 3 configuration with IP and subnet
+        if (iface.ip && iface.mask) {
+          config += '              <layer3>\n';
+          config += '                <ip>\n';
+          const cidr = this.convertSubnetToCidr(iface.mask);
+          config += `                  <entry name="${escapeXml(iface.ip)}/${cidr}"/>\n`;
+          config += '                </ip>\n';
+          config += '              </layer3>\n';
+        } else if (iface.ip) {
+          // If only IP is provided, assume /24
+          config += '              <layer3>\n';
+          config += '                <ip>\n';
+          config += `                  <entry name="${escapeXml(iface.ip)}/24"/>\n`;
+          config += '                </ip>\n';
+          config += '              </layer3>\n';
+        }
+        
+        // Interface comment/description
+        if (iface.description) {
+          config += `              <comment>${escapeXml(iface.description)}</comment>\n`;
+        }
+        
+        config += '            </entry>\n';
+      });
+    } else {
+      // Default interfaces if none provided
+      const defaultInterfaces = [
+        { name: 'ethernet1/1', ip: '192.168.1.1', mask: '255.255.255.0', description: 'LAN Interface', zone: 'trust' },
+        { name: 'ethernet1/2', ip: '203.0.113.1', mask: '255.255.255.252', description: 'WAN Interface', zone: 'untrust' }
+      ];
+      
+      defaultInterfaces.forEach(iface => {
+        config += `            <entry name="${iface.name}">\n`;
         config += '              <layer3>\n';
         config += '                <ip>\n';
-        config += `                  <entry name="${escapeXml(iface.ip)}"/>\n`;
+        const cidr = this.convertSubnetToCidr(iface.mask);
+        config += `                  <entry name="${iface.ip}/${cidr}"/>\n`;
         config += '                </ip>\n';
         config += '              </layer3>\n';
-      }
-      if (iface.description) config += `              <comment>${escapeXml(iface.description)}</comment>\n`;
-      config += '            </entry>\n';
-    });
+        config += `              <comment>${iface.description}</comment>\n`;
+        config += '            </entry>\n';
+      });
+    }
+    
     config += '          </ethernet>\n';
     config += '        </interface>\n';
+    
+    // Add zones configuration
+    config += '        <zone>\n';
+    const zones = ['trust', 'untrust', 'dmz'];
+    zones.forEach(zone => {
+      config += `          <entry name="${zone}">\n`;
+      config += '            <network>\n';
+      config += '              <layer3>\n';
+      // Add interfaces to appropriate zones
+      if (Array.isArray(this.parsedConfig.interfaces) && this.parsedConfig.interfaces.length > 0) {
+        this.parsedConfig.interfaces.forEach(iface => {
+          const ifaceZone = iface.zone || (iface.name && iface.name.includes('wan') ? 'untrust' : 'trust');
+          if (ifaceZone === zone) {
+            config += `                <member>${escapeXml(iface.name || 'ethernet1/1')}</member>\n`;
+          }
+        });
+      } else {
+        // Default zone assignments
+        if (zone === 'trust') {
+          config += '                <member>ethernet1/1</member>\n';
+        } else if (zone === 'untrust') {
+          config += '                <member>ethernet1/2</member>\n';
+        }
+      }
+      config += '              </layer3>\n';
+      config += '            </network>\n';
+      config += '          </entry>\n';
+    });
+    config += '        </zone>\n';
     config += '      </network>\n';
     config += '    </entry>\n';
     config += '  </devices>\n';
     config += '</config>\n';
     return config;
+  }
+
+  convertSubnetToCidr(subnetMask) {
+    // Convert subnet mask to CIDR notation
+    const maskMap = {
+      '255.255.255.255': '32',
+      '255.255.255.254': '31',
+      '255.255.255.252': '30',
+      '255.255.255.248': '29',
+      '255.255.255.240': '28',
+      '255.255.255.224': '27',
+      '255.255.255.192': '26',
+      '255.255.255.128': '25',
+      '255.255.255.0': '24',
+      '255.255.254.0': '23',
+      '255.255.252.0': '22',
+      '255.255.248.0': '21',
+      '255.255.240.0': '20',
+      '255.255.224.0': '19',
+      '255.255.192.0': '18',
+      '255.255.128.0': '17',
+      '255.255.0.0': '16',
+      '255.254.0.0': '15',
+      '255.252.0.0': '14',
+      '255.248.0.0': '13',
+      '255.240.0.0': '12',
+      '255.224.0.0': '11',
+      '255.192.0.0': '10',
+      '255.128.0.0': '9',
+      '255.0.0.0': '8',
+      '254.0.0.0': '7',
+      '252.0.0.0': '6',
+      '248.0.0.0': '5',
+      '240.0.0.0': '4',
+      '224.0.0.0': '3',
+      '192.0.0.0': '2',
+      '128.0.0.0': '1',
+      '0.0.0.0': '0'
+    };
+    
+    return maskMap[subnetMask] || '24'; // Default to /24 if not found
   }
 }
 
@@ -398,9 +510,6 @@ function escapeXml(value) {
     .replace(/'/g, '&apos;');
 }
 
-function attrOr(value, fallback) {
-  return value && String(value).length > 0 ? value : fallback;
-}
 
 module.exports = {
   PaloAltoConfigParser,

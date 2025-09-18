@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { Upload, Download, CheckCircle, AlertCircle, Settings, Shield, ArrowRight } from 'lucide-react';
+import { Upload, Download, CheckCircle, AlertCircle, Settings, Shield } from 'lucide-react';
 import FileUpload from './components/FileUpload';
 import ProgressTracker from './components/ProgressTracker';
 import ConversionReport from './components/ConversionReport';
@@ -20,7 +20,6 @@ function App() {
   const [vendors, setVendors] = useState([]);
   const [sourceVendor, setSourceVendor] = useState('');
   const [targetVendor, setTargetVendor] = useState('');
-  const [conversionOptions, setConversionOptions] = useState([]);
 
   const steps = [
     { id: 'upload', name: 'Upload Configuration', icon: Upload },
@@ -36,16 +35,57 @@ function App() {
 
   const fetchVendors = async () => {
     try {
-      console.log('Fetching vendors...');
-      const response = await fetch('/api/vendors');
-      const data = await response.json();
-      console.log('Vendors response:', data);
-      if (data.success) {
-        setVendors(data.vendors);
-        console.log('Vendors set:', data.vendors);
+      // Dynamic API URL based on current host
+      const apiBaseUrl = window.location.hostname === 'localhost' || window.location.hostname === '127.0.0.1' 
+        ? 'http://localhost:5000' 
+        : `http://${window.location.hostname}:5000`;
+      
+      console.log('🔄 Fetching vendors from', `${apiBaseUrl}/api/vendors...`);
+      
+      const response = await fetch(`${apiBaseUrl}/api/vendors`, {
+        method: 'GET',
+        headers: {
+          'Content-Type': 'application/json',
+          'Accept': 'application/json',
+        },
+        mode: 'cors',
+        credentials: 'omit',
+      });
+      
+      console.log('📡 Response status:', response.status, response.statusText);
+      console.log('📡 Response headers:', Object.fromEntries(response.headers.entries()));
+      
+      if (response.ok) {
+        const data = await response.json();
+        console.log('✅ Vendors response:', data);
+        if (data.success) {
+          setVendors(data.vendors);
+          console.log('✅ Vendors set successfully:', data.vendors);
+          return;
+        } else {
+          throw new Error('API returned success: false');
+        }
+      } else {
+        const errorText = await response.text();
+        console.error('❌ HTTP Error Response:', errorText);
+        throw new Error(`HTTP ${response.status}: ${response.statusText} - ${errorText}`);
       }
     } catch (error) {
-      console.error('Error fetching vendors:', error);
+      console.error('❌ Error fetching vendors:', error);
+      console.error('❌ Error details:', {
+        name: error.name,
+        message: error.message,
+        stack: error.stack
+      });
+      
+      // Set default vendors as fallback
+      console.warn('⚠️ Using fallback vendor data due to API failure');
+      setVendors([
+        { id: 'cisco-asa', name: 'Cisco ASA', extensions: ['.txt', '.cfg'], description: 'Cisco Adaptive Security Appliance' },
+        { id: 'cisco-ftd', name: 'Cisco FTD', extensions: ['.txt', '.cfg'], description: 'Cisco Firepower Threat Defense' },
+        { id: 'fortigate', name: 'FortiGate', extensions: ['.txt', '.cfg'], description: 'FortiGate Next-Generation Firewall' },
+        { id: 'palo-alto', name: 'Palo Alto', extensions: ['.xml', '.txt'], description: 'Palo Alto Networks PAN-OS' }
+      ]);
     }
   };
 
@@ -103,10 +143,29 @@ function App() {
       setProgress(80);
       await new Promise(resolve => setTimeout(resolve, 1000));
 
-      const response = await fetch('/upload', {
-        method: 'POST',
-        body: formData
+      // Dynamic API URL based on current host
+      const apiBaseUrl = window.location.hostname === 'localhost' || window.location.hostname === '127.0.0.1' 
+        ? 'http://localhost:5000' 
+        : `http://${window.location.hostname}:5000`;
+      
+      console.log('🔄 Uploading to backend...');
+      console.log('📤 Upload data:', {
+        sourceVendor,
+        targetVendor,
+        fileName: file.name,
+        fileSize: file.size,
+        fileType: file.type
       });
+      
+      const response = await fetch(`${apiBaseUrl}/upload`, {
+        method: 'POST',
+        body: formData,
+        mode: 'cors',
+        credentials: 'omit',
+      });
+      
+      console.log('📡 Upload response status:', response.status, response.statusText);
+      console.log('📡 Upload response headers:', Object.fromEntries(response.headers.entries()));
 
       clearInterval(progressInterval);
 
@@ -189,12 +248,17 @@ function App() {
                 <p>Vendors loaded: {vendors.length}</p>
                 <p>Source vendor: {sourceVendor || 'None selected'}</p>
                 <p>Target vendor: {targetVendor || 'None selected'}</p>
+                <button 
+                  onClick={fetchVendors}
+                  className="mt-2 px-3 py-1 bg-blue-500 text-white text-xs rounded hover:bg-blue-600"
+                >
+                  Test API Connection
+                </button>
               </div>
             </div>
             
             <VendorSelector 
               vendors={vendors}
-              onVendorSelection={() => {}}
               selectedSource={sourceVendor}
               selectedTarget={targetVendor}
               onSourceChange={handleSourceVendorChange}

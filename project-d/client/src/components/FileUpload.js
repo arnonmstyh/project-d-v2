@@ -19,7 +19,9 @@ const FileUpload = ({ onFileUpload }) => {
     onDrop,
     accept: {
       'text/plain': ['.txt', '.cfg'],
-      'application/octet-stream': ['.txt', '.cfg']
+      'application/octet-stream': ['.txt', '.cfg'],
+      'application/xml': ['.xml'],
+      'text/xml': ['.xml']
     },
     maxFiles: 1,
     maxSize: 10 * 1024 * 1024 // 10MB
@@ -54,11 +56,11 @@ const FileUpload = ({ onFileUpload }) => {
               }
             </h3>
             <p className="text-gray-600 mb-4">
-              Drag and drop your Cisco ASA configuration file here, or click to browse
+              Drag and drop your firewall configuration file here, or click to browse
             </p>
             <div className="flex items-center justify-center space-x-2 text-sm text-gray-500">
               <FileText className="h-4 w-4" />
-              <span>Supports .txt and .cfg files (max 10MB)</span>
+              <span>Supports .txt, .cfg, and .xml files (max 10MB)</span>
             </div>
           </div>
           

@@ -69,7 +69,9 @@ class FortiGateConfigParser {
           ip: '',
           mask: '',
           description: '',
-          zone: 'untrust'
+          zone: 'untrust',
+          type: 'physical',
+          status: 'up'
         };
 
         // Parse interface configuration
@@ -81,10 +83,22 @@ class FortiGateConfigParser {
             interfaceConfig.mask = ipParts[1];
           } else if (configLine.includes('set alias ')) {
             interfaceConfig.description = configLine.split('"')[1];
+          } else if (configLine.includes('set zone ')) {
+            interfaceConfig.zone = configLine.split('"')[1];
+          } else if (configLine.includes('set type ')) {
+            interfaceConfig.type = configLine.split('set type ')[1];
+          } else if (configLine.includes('set status ')) {
+            interfaceConfig.status = configLine.split('set status ')[1];
           }
         }
 
-        this.config.interfaces.push(interfaceConfig);
+        // Only add interfaces that have IP configuration
+        if (interfaceConfig.ip && interfaceConfig.mask) {
+          console.log(`[FortiGate Parser] Found interface: ${interfaceConfig.name} - ${interfaceConfig.ip}/${interfaceConfig.mask} (${interfaceConfig.zone})`);
+          this.config.interfaces.push(interfaceConfig);
+        } else {
+          console.log(`[FortiGate Parser] Skipping interface ${interfaceConfig.name} - no IP configuration`);
+        }
       }
     }
   }
