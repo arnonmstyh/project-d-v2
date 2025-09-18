@@ -1,0 +1,42 @@
+{
+  "name": "multi-vendor-firewall-converter",
+  "version": "1.0.0",
+  "description": "Multi-Vendor Firewall Configuration Converter - AIT Cybersecurity Team",
+  "main": "server/index.js",
+  "scripts": {
+    "dev": "concurrently \"npm run server\" \"npm run client\"",
+    "server": "cd server && npm run dev",
+    "client": "cd client && npm start",
+    "build": "cd client && npm run build",
+    "install-all": "npm install && cd server && npm install && cd ../client && npm install",
+    "start": "npm run dev"
+  },
+  "keywords": [
+    "firewall",
+    "converter",
+    "cisco",
+    "fortigate",
+    "palo-alto",
+    "network-security",
+    "ait",
+    "cybersecurity",
+    "multi-vendor"
+  ],
+  "author": "AIT Cybersecurity Team",
+  "license": "PROPRIETARY",
+  "devDependencies": {
+    "concurrently": "^8.2.2"
+  },
+  "dependencies": {
+    "form-data": "^4.0.4",
+    "node-fetch": "^3.3.2"
+  },
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/arnonmstyh/multi-vendor-firewall-converter.git"
+  },
+  "bugs": {
+    "url": "https://github.com/arnonmstyh/multi-vendor-firewall-converter/issues"
+  },
+  "homepage": "https://github.com/arnonmstyh/multi-vendor-firewall-converter#readme"
+}

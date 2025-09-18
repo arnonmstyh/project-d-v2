@@ -1,0 +1,137 @@
+! Cisco ASA Configuration Sample
+! This is a sample ASA configuration for testing the converter
+
+hostname ASA-FIREWALL
+domain-name company.local
+
+! Interface Configuration
+interface GigabitEthernet0/0
+ nameif outside
+ security-level 0
+ ip address 203.0.113.1 255.255.255.0
+!
+
+interface GigabitEthernet0/1
+ nameif inside
+ security-level 100
+ ip address 192.168.1.1 255.255.255.0
+!
+
+interface GigabitEthernet0/2
+ nameif dmz
+ security-level 50
+ ip address 192.168.2.1 255.255.255.0
+!
+
+! Address Objects
+object network INSIDE-NET
+ subnet 192.168.1.0 255.255.255.0
+ description Internal network
+
+object network DMZ-SERVER
+ host 192.168.2.10
+ description DMZ web server
+
+object network OUTSIDE-SERVER
+ host 203.0.113.100
+ description External server
+
+! Object Groups
+object-group network INTERNAL-NETS
+ description Internal network groups
+ network-object 192.168.1.0 255.255.255.0
+ network-object 192.168.10.0 255.255.255.0
+ group-object INSIDE-NET
+
+object-group network DMZ-SERVERS
+ description DMZ server group
+ network-object DMZ-SERVER
+ network-object 192.168.2.20 255.255.255.255
+
+! Access Lists (Security Policies)
+access-list OUTSIDE-IN extended permit tcp any host 192.168.2.10 eq 80
+access-list OUTSIDE-IN extended permit tcp any host 192.168.2.10 eq 443
+access-list OUTSIDE-IN extended deny ip any any
+
+access-list INSIDE-OUT extended permit ip 192.168.1.0 255.255.255.0 any
+access-list INSIDE-OUT extended permit ip 192.168.10.0 255.255.255.0 any
+access-list INSIDE-OUT extended deny ip any any
+
+! Apply access lists to interfaces
+access-group OUTSIDE-IN in interface outside
+access-group INSIDE-OUT out interface inside
+
+! NAT Configuration
+nat (inside,outside) source dynamic INSIDE-NET interface
+nat (dmz,outside) source static DMZ-SERVER DMZ-SERVER
+
+! Static Routes
+route outside 0.0.0.0 0.0.0.0 203.0.113.254 1
+
+! VPN Configuration
+crypto map OUTSIDE-MAP 1 match address VPN-ACL
+crypto map OUTSIDE-MAP 1 set peer 203.0.113.200
+crypto map OUTSIDE-MAP 1 set transform-set ESP-AES-SHA
+crypto map OUTSIDE-MAP 1 set pfs group2
+crypto map OUTSIDE-MAP interface outside
+
+! VPN Access List
+access-list VPN-ACL extended permit ip 192.168.1.0 255.255.255.0 10.0.0.0 255.255.255.0
+
+! Transform Set
+crypto ipsec transform-set ESP-AES-SHA esp-aes esp-sha-hmac
+
+! IKE Policy
+crypto ikev1 policy 10
+ authentication pre-share
+ encryption aes
+ hash sha
+ group 2
+ lifetime 86400
+
+! IKE Keyring
+crypto ikev1 keyring VPN-KEYS
+ peer 203.0.113.200
+  address 203.0.113.200
+  key cisco123
+
+! LDAP Configuration
+aaa-server LDAP-SERVER protocol ldap
+aaa-server LDAP-SERVER (inside) host 192.168.1.100
+ ldap-base-dn dc=company,dc=local
+ ldap-group-base-dn ou=groups,dc=company,dc=local
+ ldap-scope subtree
+ ldap-naming-attribute sAMAccountName
+ ldap-login-password cisco123
+ ldap-login-dn cn=admin,dc=company,dc=local
+ server-type microsoft
+
+! System Configuration
+enable password cisco123 encrypted
+passwd cisco123 encrypted
+username admin password cisco123 encrypted privilege 15
+
+! Logging
+logging enable
+logging timestamp
+logging host inside 192.168.1.100
+
+! SNMP
+snmp-server host inside 192.168.1.100 community public version 2c
+snmp-server location "Data Center"
+snmp-server contact "Network Admin"
+
+! SSH Configuration
+ssh version 2
+ssh 192.168.1.0 255.255.255.0 inside
+ssh timeout 5
+
+! HTTP Configuration
+http server enable
+http 192.168.1.0 255.255.255.0 inside
+
+! Clock Configuration
+clock timezone EST -5
+clock summer-time EDT recurring
+
+! End of Configuration
