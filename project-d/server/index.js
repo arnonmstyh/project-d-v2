@@ -10,17 +10,28 @@ const { MultiVendorConverter } = require('./vendors');
 
 const app = express();
 const server = http.createServer(app);
+const publicOrigins = process.env.ALLOWED_ORIGINS
+  ? process.env.ALLOWED_ORIGINS.split(',').map(o => o.trim())
+  : ["*"];
+
 const io = new Server(server, {
   cors: {
-    origin: "http://localhost:3000",
-    methods: ["GET", "POST"]
+    origin: publicOrigins,
+    methods: ["GET", "POST"],
+    credentials: false
   }
 });
 
 // Middleware
-app.use(cors());
+app.use(cors({ origin: publicOrigins, credentials: false }));
 app.use(express.json());
 app.use(express.static('public'));
+
+// Serve React build in production
+const clientBuildPath = path.join(__dirname, '..', 'client', 'build');
+if (fs.existsSync(clientBuildPath)) {
+  app.use(express.static(clientBuildPath));
+}
 
 // Configure multer for file uploads
 const storage = multer.diskStorage({
@@ -180,6 +191,15 @@ app.get('/download/:filename', (req, res) => {
 // Serve converted files
 app.use('/converted', express.static(path.join(__dirname, 'converted')));
 
+// Fallback to React index.html for client routes (after API/static routes)
+app.get('*', (req, res, next) => {
+  if (fs.existsSync(clientBuildPath)) {
+    res.sendFile(path.join(clientBuildPath, 'index.html'));
+  } else {
+    next();
+  }
+});
+
 // Socket.io connection handling
 io.on('connection', (socket) => {
   console.log('Client connected:', socket.id);
@@ -190,7 +210,8 @@ io.on('connection', (socket) => {
 });
 
 const PORT = process.env.PORT || 5000;
-server.listen(PORT, () => {
-  console.log(`Multi-Vendor Firewall Converter Server running on port ${PORT}`);
+const HOST = process.env.HOST || '0.0.0.0';
+server.listen(PORT, HOST, () => {
+  console.log(`Multi-Vendor Firewall Converter Server running on http://${HOST}:${PORT}`);
   console.log('Supported vendors:', Object.keys(converter.vendors).join(', '));
 });

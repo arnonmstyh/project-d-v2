@@ -275,16 +275,134 @@ class FortiGateConfigGenerator {
   }
 
   generateConfig() {
-    // This would generate FortiGate configuration from other vendors
-    // For now, return a placeholder
-    let config = '# FortiGate Configuration\n';
-    config += '# Generated from ' + this.sourceVendor + ' configuration\n\n';
-    
-    config += 'config system global\n';
-    config += `    set hostname "${this.parsedConfig.hostname || 'fortigate-converted'}"\n`;
-    config += 'end\n\n';
-    
-    return config;
+    // Generate a richer FortiGate configuration from generic parsed data (e.g., ASA)
+    let cfg = '';
+
+    // Header
+    cfg += '# FortiGate Configuration\n';
+    cfg += '# Generated from ' + this.sourceVendor + ' configuration\n\n';
+
+    // Global hostname
+    cfg += 'config system global\n';
+    cfg += `    set hostname "${this.parsedConfig.hostname || 'fortigate-converted'}"\n`;
+    cfg += 'end\n\n';
+
+    // Interfaces
+    if (Array.isArray(this.parsedConfig.interfaces) && this.parsedConfig.interfaces.length > 0) {
+      cfg += 'config system interface\n';
+      this.parsedConfig.interfaces.forEach((iface) => {
+        const name = iface.name || 'port1';
+        cfg += `    edit "${name}"\n`;
+        if (iface.ip && iface.mask) {
+          cfg += `        set ip ${iface.ip} ${iface.mask}\n`;
+        }
+        if (iface.description) {
+          cfg += `        set alias "${iface.description}"\n`;
+        }
+        cfg += '        set allowaccess ping https http ssh\n';
+        cfg += '    next\n';
+      });
+      cfg += 'end\n\n';
+    }
+
+    // Address objects from parsed objects
+    const addresses = [];
+    if (Array.isArray(this.parsedConfig.objects)) {
+      this.parsedConfig.objects.forEach((obj) => {
+        const name = obj.name || 'addr_auto';
+        const comment = obj.description ? obj.description.replace(/"/g, '\\"') : '';
+        if (obj.type === 'host' && obj.value) {
+          addresses.push({ name, value: `${obj.value} 255.255.255.255`, comment });
+        } else if (obj.type === 'subnet' && obj.value && obj.mask) {
+          addresses.push({ name, value: `${obj.value} ${obj.mask}`, comment });
+        }
+      });
+    }
+    if (addresses.length > 0) {
+      cfg += 'config firewall address\n';
+      addresses.forEach((a) => {
+        cfg += `    edit "${a.name}"\n`;
+        cfg += '        set type ipmask\n';
+        cfg += `        set subnet ${a.value}\n`;
+        if (a.comment) cfg += `        set comment "${a.comment}"\n`;
+        cfg += '    next\n';
+      });
+      cfg += 'end\n\n';
+    }
+
+    // Address groups from parsed objectGroups
+    if (Array.isArray(this.parsedConfig.objectGroups) && this.parsedConfig.objectGroups.length > 0) {
+      cfg += 'config firewall addrgrp\n';
+      this.parsedConfig.objectGroups.forEach((grp) => {
+        const name = grp.name || 'grp_auto';
+        const comment = grp.description ? grp.description.replace(/"/g, '\\"') : '';
+        const members = Array.isArray(grp.members)
+          ? grp.members.map((m) => m.value).filter(Boolean)
+          : [];
+        cfg += `    edit "${name}"\n`;
+        if (members.length > 0) {
+          cfg += `        set member ${members.map((m) => `"${m}"`).join(' ')}\n`;
+        }
+        if (comment) cfg += `        set comment "${comment}"\n`;
+        cfg += '    next\n';
+      });
+      cfg += 'end\n\n';
+    }
+
+    // Policies from parsed policies (very basic translation)
+    if (Array.isArray(this.parsedConfig.policies) && this.parsedConfig.policies.length > 0) {
+      cfg += 'config firewall policy\n';
+      let policyId = 1;
+      this.parsedConfig.policies.forEach((p) => {
+        cfg += `    edit ${policyId++}\n`;
+        const name = p.name ? p.name : `${p.action || 'permit'}_${p.protocol || 'ip'}`;
+        cfg += `        set name "${name}"\n`;
+        // Map ASA semantics loosely: any/object names
+        const src = p.source && p.source !== 'any' ? [p.source] : ['all'];
+        const dst = p.destination && p.destination !== 'any' ? [p.destination] : ['all'];
+        const svc = p.service && p.service !== 'any' ? [p.service] : ['ALL'];
+        cfg += `        set srcintf "any"\n`;
+        cfg += `        set dstintf "any"\n`;
+        cfg += `        set srcaddr ${src.map((s) => `"${s}"`).join(' ')}\n`;
+        cfg += `        set dstaddr ${dst.map((d) => `"${d}"`).join(' ')}\n`;
+        cfg += `        set service ${svc.map((s) => `"${s}"`).join(' ')}\n`;
+        cfg += `        set action ${p.action === 'permit' || p.action === 'allow' ? 'accept' : 'deny'}\n`;
+        cfg += '        set schedule "always"\n';
+        cfg += '        set logtraffic all\n';
+        if (p.description) cfg += `        set comments "${p.description.replace(/"/g, '\\"')}"\n`;
+        cfg += '    next\n';
+      });
+      cfg += 'end\n\n';
+    }
+
+    // Static routes
+    if (Array.isArray(this.parsedConfig.routes) && this.parsedConfig.routes.length > 0) {
+      cfg += 'config router static\n';
+      let rid = 1;
+      this.parsedConfig.routes.forEach((r) => {
+        if (!r.network || !r.mask || !r.gateway) return;
+        cfg += `    edit ${rid++}\n`;
+        cfg += `        set dst ${r.network} ${r.mask}\n`;
+        cfg += `        set gateway ${r.gateway}\n`;
+        if (r.interface) cfg += `        set device ${r.interface}\n`;
+        cfg += '    next\n';
+      });
+      cfg += 'end\n\n';
+    }
+
+    // Simple NAT: translate ASA dynamic/static placeholders into comments for manual review
+    const natItems = [];
+    if (Array.isArray(this.parsedConfig.nat)) natItems.push(...this.parsedConfig.nat);
+    if (Array.isArray(this.parsedConfig.staticNAT)) natItems.push(...this.parsedConfig.staticNAT);
+    if (natItems.length > 0) {
+      cfg += '# NOTE: Review and convert the following NAT rules manually if needed:\n';
+      natItems.forEach((n) => {
+        cfg += `# NAT ${JSON.stringify(n)}\n`;
+      });
+      cfg += '\n';
+    }
+
+    return cfg;
   }
 }
 

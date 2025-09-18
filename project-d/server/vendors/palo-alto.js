@@ -269,38 +269,141 @@ class PaloAltoConfigGenerator {
   generateConfig() {
     let config = '<?xml version="1.0" encoding="UTF-8"?>\n';
     config += '<config version="10.0" urldb="paloaltonetworks">\n';
+    config += '  <shared>\n';
+    // Addresses
+    if (Array.isArray(this.parsedConfig.addresses) && this.parsedConfig.addresses.length > 0) {
+      config += '    <address>\n';
+      this.parsedConfig.addresses.forEach(addr => {
+        const desc = addr.description ? `<description>${escapeXml(addr.description)}</description>` : '';
+        config += `      <entry name="${escapeXml(attrOr(addr.name,'addr'))}">\n`;
+        config += `        <ip-netmask>${escapeXml(attrOr(addr.value,'0.0.0.0/32'))}</ip-netmask>\n`;
+        if (desc) config += `        ${desc}\n`;
+        config += '      </entry>\n';
+      });
+      config += '    </address>\n';
+    }
+    // Address groups
+    if (Array.isArray(this.parsedConfig.addressGroups) && this.parsedConfig.addressGroups.length > 0) {
+      config += '    <address-group>\n';
+      this.parsedConfig.addressGroups.forEach(grp => {
+        const desc = grp.description ? `<description>${escapeXml(grp.description)}</description>` : '';
+        config += `      <entry name="${escapeXml(attrOr(grp.name,'addrgrp'))}">\n`;
+        if (Array.isArray(grp.members) && grp.members.length > 0) {
+          config += '        <static>\n';
+          grp.members.forEach(m => {
+            config += `          <member>${escapeXml(m)}</member>\n`;
+          });
+          config += '        </static>\n';
+        }
+        if (desc) config += `        ${desc}\n`;
+        config += '      </entry>\n';
+      });
+      config += '    </address-group>\n';
+    }
+    config += '  </shared>\n';
+
     config += '  <devices>\n';
     config += '    <entry name="localhost.localdomain">\n';
     config += '      <deviceconfig>\n';
     config += '        <system>\n';
-    config += `          <hostname>${this.parsedConfig.hostname || 'palo-alto-converted'}</hostname>\n`;
+    config += `          <hostname>${escapeXml(this.parsedConfig.hostname || 'palo-alto-converted')}</hostname>\n`;
     config += '        </system>\n';
     config += '      </deviceconfig>\n';
+    config += '      <vsys>\n';
+    config += '        <entry name="vsys1">\n';
+    config += '          <rulebase>\n';
+    // Security rules (prefer native PAN structure; fallback to generic ASA-style policies)
+    const derivedRules = Array.isArray(this.parsedConfig.securityPolicies) && this.parsedConfig.securityPolicies.length > 0
+      ? this.parsedConfig.securityPolicies
+      : (Array.isArray(this.parsedConfig.policies) ? this.parsedConfig.policies.map((p, idx) => ({
+          name: p.name || `rule-${idx + 1}`,
+          source: p.source && p.source !== 'any' ? [p.source] : ['any'],
+          destination: p.destination && p.destination !== 'any' ? [p.destination] : ['any'],
+          service: p.service && p.service !== 'any' ? [p.service] : ['application-default'],
+          action: (p.action === 'permit' || p.action === 'allow') ? 'allow' : 'deny',
+          description: p.description || ''
+        })) : []);
+
+    if (derivedRules.length > 0) {
+      config += '            <security>\n';
+      config += '              <rules>\n';
+      derivedRules.forEach(rule => {
+        const name = escapeXml(attrOr(rule.name,'rule-1'));
+        config += `                <entry name="${name}">\n`;
+        // Sources
+        config += '                  <from>\n';
+        config += '                    <member>any</member>\n';
+        config += '                  </from>\n';
+        config += '                  <to>\n';
+        config += '                    <member>any</member>\n';
+        config += '                  </to>\n';
+        config += '                  <source>\n';
+        (rule.source && rule.source.length ? rule.source : ['any']).forEach(s => {
+          config += `                    <member>${escapeXml(s)}</member>\n`;
+        });
+        config += '                  </source>\n';
+        config += '                  <destination>\n';
+        (rule.destination && rule.destination.length ? rule.destination : ['any']).forEach(d => {
+          config += `                    <member>${escapeXml(d)}</member>\n`;
+        });
+        config += '                  </destination>\n';
+        config += '                  <service>\n';
+        (rule.service && rule.service.length ? rule.service : ['application-default']).forEach(sv => {
+          config += `                    <member>${escapeXml(sv)}</member>\n`;
+        });
+        config += '                  </service>\n';
+        config += `                  <action>${rule.action === 'deny' ? 'deny' : 'allow'}</action>\n`;
+        if (rule.description) config += `                  <description>${escapeXml(rule.description)}</description>\n`;
+        config += '                </entry>\n';
+      });
+      config += '              </rules>\n';
+      config += '            </security>\n';
+    }
+    config += '          </rulebase>\n';
+    config += '        </entry>\n';
+    config += '      </vsys>\n';
+    // Network interfaces
     config += '      <network>\n';
     config += '        <interface>\n';
     config += '          <ethernet>\n';
-    
-    // Add interfaces
     this.parsedConfig.interfaces.forEach(iface => {
-      config += `            <entry name="${iface.name}">\n`;
-      if (iface.zone) config += `              <zone>${iface.zone}</zone>\n`;
-      if (iface.ip) config += `              <ip>\n                <entry name="${iface.ip}"/>\n              </ip>\n`;
-      if (iface.description) config += `              <comment>${iface.description}</comment>\n`;
+      const name = escapeXml(attrOr(iface.name,'ethernet1/1'));
+      config += `            <entry name="${name}">\n`;
+      if (iface.ip) {
+        config += '              <layer3>\n';
+        config += '                <ip>\n';
+        config += `                  <entry name="${escapeXml(iface.ip)}"/>\n`;
+        config += '                </ip>\n';
+        config += '              </layer3>\n';
+      }
+      if (iface.description) config += `              <comment>${escapeXml(iface.description)}</comment>\n`;
       config += '            </entry>\n';
     });
-    
     config += '          </ethernet>\n';
     config += '        </interface>\n';
     config += '      </network>\n';
     config += '    </entry>\n';
     config += '  </devices>\n';
     config += '</config>\n';
-    
     return config;
   }
+}
+
+function escapeXml(value) {
+  return String(value)
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;')
+    .replace(/'/g, '&apos;');
+}
+
+function attrOr(value, fallback) {
+  return value && String(value).length > 0 ? value : fallback;
 }
 
 module.exports = {
   PaloAltoConfigParser,
   PaloAltoConfigGenerator
 };
+
